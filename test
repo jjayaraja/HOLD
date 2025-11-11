@@ -1,1 +1,182 @@
 
+<#
+.SYNOPSIS
+Exports specified sheets from an Excel file to a single PDF file.
+
+.DESCRIPTION
+This script uses Excel COM objects to open an Excel file, select specified sheets (all, by names, by numbers, or a range by name/number), and export them to a PDF file.
+
+.PARAMETER ExcelFilePath
+The path to the input Excel file.
+
+.PARAMETER AllSheets
+Switch to export all sheets.
+
+.PARAMETER SheetNames
+Array of sheet names to export.
+
+.PARAMETER SheetNumbers
+Array of sheet numbers (1-based indices) to export.
+
+.PARAMETER StartSheet
+Start sheet for range export (can be name or number as string).
+
+.PARAMETER EndSheet
+End sheet for range export (can be name or number as string).
+
+.PARAMETER OutputPdfPath
+The path to the output PDF file. If not provided, defaults to the Excel file path with .pdf extension.
+
+.EXAMPLE
+.\Export-ExcelToPdf.ps1 -ExcelFilePath "C:\data.xlsx" -AllSheets -OutputPdfPath "C:\output.pdf"
+
+.EXAMPLE
+.\Export-ExcelToPdf.ps1 -ExcelFilePath "C:\data.xlsx" -SheetNames "Sheet1", "Sheet3"
+
+.EXAMPLE
+.\Export-ExcelToPdf.ps1 -ExcelFilePath "C:\data.xlsx" -SheetNumbers 1, 3, 5
+
+.EXAMPLE
+.\Export-ExcelToPdf.ps1 -ExcelFilePath "C:\data.xlsx" -StartSheet "1" -EndSheet "3"
+
+.EXAMPLE
+.\Export-ExcelToPdf.ps1 -ExcelFilePath "C:\data.xlsx" -StartSheet "Sheet1" -EndSheet "Sheet3"
+
+.NOTES
+Requires Microsoft Excel installed on the machine running the script.
+#>
+
+param(
+    [Parameter(Mandatory=$true)]
+    [ValidateScript({Test-Path $_ -PathType Leaf})]
+    [string]$ExcelFilePath,
+
+    [Parameter(ParameterSetName="All")]
+    [switch]$AllSheets,
+
+    [Parameter(ParameterSetName="Names")]
+    [string[]]$SheetNames,
+
+    [Parameter(ParameterSetName="Numbers")]
+    [int[]]$SheetNumbers,
+
+    [Parameter(ParameterSetName="Range", Mandatory=$true)]
+    [string]$StartSheet,
+
+    [Parameter(ParameterSetName="Range", Mandatory=$true)]
+    [string]$EndSheet,
+
+    [string]$OutputPdfPath
+)
+
+# Determine output path if not provided
+if (-not $OutputPdfPath) {
+    $OutputPdfPath = [System.IO.Path]::ChangeExtension($ExcelFilePath, ".pdf")
+}
+
+# Create Excel COM object
+$excel = New-Object -ComObject Excel.Application
+$excel.Visible = $false
+$excel.DisplayAlerts = $false
+
+try {
+    $workbook = $excel.Workbooks.Open((Resolve-Path $ExcelFilePath).Path)
+    $worksheets = $workbook.Worksheets
+    $totalSheets = $worksheets.Count
+
+    # Determine sheet indices based on parameter set
+    $sheetIndices = @()
+
+    switch ($PSCmdlet.ParameterSetName) {
+        "All" {
+            $sheetIndices = 1..$totalSheets
+        }
+        "Names" {
+            foreach ($name in $SheetNames) {
+                try {
+                    $sheet = $worksheets.Item($name)
+                    $sheetIndices += $sheet.Index
+                } catch {
+                    Write-Error "Sheet name '$name' not found."
+                    return
+                }
+            }
+            $sheetIndices = $sheetIndices | Sort-Object
+        }
+        "Numbers" {
+            foreach ($num in $SheetNumbers) {
+                if ($num -lt 1 -or $num -gt $totalSheets) {
+                    Write-Error "Sheet number $num is out of range (1 to $totalSheets)."
+                    return
+                }
+                $sheetIndices += $num
+            }
+            $sheetIndices = $sheetIndices | Sort-Object
+        }
+        "Range" {
+            [int]$startIndex = 0
+            [int]$endIndex = 0
+            $isNumeric = [int]::TryParse($StartSheet, [ref]$startIndex) -and [int]::TryParse($EndSheet, [ref]$endIndex)
+
+            if ($isNumeric) {
+                # Treat as indices
+                if ($startIndex -lt 1 -or $startIndex -gt $totalSheets -or $endIndex -lt 1 -or $endIndex -gt $totalSheets) {
+                    Write-Error "Range indices out of bounds (1 to $totalSheets)."
+                    return
+                }
+            } else {
+                # Treat as names
+                try {
+                    $startSheetObj = $worksheets.Item($StartSheet)
+                    $startIndex = $startSheetObj.Index
+                } catch {
+                    Write-Error "Start sheet name '$StartSheet' not found."
+                    return
+                }
+                try {
+                    $endSheetObj = $worksheets.Item($EndSheet)
+                    $endIndex = $endSheetObj.Index
+                } catch {
+                    Write-Error "End sheet name '$EndSheet' not found."
+                    return
+                }
+            }
+
+            $minIndex = [Math]::Min($startIndex, $endIndex)
+            $maxIndex = [Math]::Max($startIndex, $endIndex)
+            $sheetIndices = $minIndex..$maxIndex
+        }
+    }
+
+    if ($sheetIndices.Count -eq 0) {
+        Write-Error "No sheets selected for export."
+        return
+    }
+
+    # Select the sheets (first one with replace=$true, others $false)
+    $firstSheet = $worksheets.Item($sheetIndices[0])
+    $firstSheet.Select()  # Defaults to replace=$true
+
+    for ($i = 1; $i -lt $sheetIndices.Count; $i++) {
+        $worksheets.Item($sheetIndices[$i]).Select($false)
+    }
+
+    # Export to PDF using ActiveSheet to export only selected sheets
+    $workbook.ActiveSheet.ExportAsFixedFormat(0, $OutputPdfPath)  # 0 = xlTypePDF
+
+    Write-Output "Exported to $OutputPdfPath successfully."
+} catch {
+    Write-Error "An error occurred: $_"
+} finally {
+    # Clean up
+    if ($workbook) {
+        $workbook.Close($false)
+        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($workbook) | Out-Null
+    }
+    if ($excel) {
+        $excel.Quit()
+        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel) | Out-Null
+    }
+    [System.GC]::Collect()
+    [System.GC]::WaitForPendingFinalizers()
+}
