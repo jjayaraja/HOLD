@@ -25,6 +25,12 @@ import { settings } from './settings.js';
             if (action.type === 'DIRECT_LINE/POST_ACTIVITY') {
                 const activity = action.payload.activity;
                 
+                // Only process message-type activities for text/attachment handling
+                // Skip events, typing indicators, etc.
+                if (activity.type !== 'message') {
+                    return next(action);
+                }
+                
                 // Handle file uploads (user responding to Question node)
                 if (activity.attachments && activity.attachments.length > 0) {
                     console.log(`User uploading ${activity.attachments.length} file(s) in response to bot question`);
