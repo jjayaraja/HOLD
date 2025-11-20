@@ -23,17 +23,17 @@ import { settings } from './settings.js';
         // Wrap the postActivity method to ensure all activities have required properties
         const originalPostActivity = directLine.postActivity.bind(directLine);
         directLine.postActivity = (activity) => {
-            console.log('postActivity called with:', activity);
+            console.log('postActivity intercepted - original activity:', activity);
             
-            // Ensure activity has all required properties
-            const enhancedActivity = {
-                ...activity,
-                // Add text for message-type activities if missing
-                text: activity.text || (activity.type === 'message' ? ' ' : undefined)
-            };
+            // CopilotStudio SDK requires text property for ALL activities, even events
+            // This is different from standard Bot Framework behavior
+            if (!activity.text) {
+                activity.text = ' '; // Add minimal text to satisfy SDK validation
+                console.log('Added text property to activity');
+            }
             
-            console.log('Enhanced activity:', enhancedActivity);
-            return originalPostActivity(enhancedActivity);
+            console.log('Calling original postActivity with:', activity);
+            return originalPostActivity(activity);
         };
 
         // Create a store with middleware to handle Question node file responses
@@ -41,17 +41,24 @@ import { settings } from './settings.js';
             if (action.type === 'DIRECT_LINE/POST_ACTIVITY') {
                 const activity = action.payload.activity;
                 
-                console.log('Store middleware - Activity type:', activity.type);
+                console.log('Store middleware - Activity:', {
+                    type: activity.type,
+                    hasText: !!activity.text,
+                    text: activity.text
+                });
+                
+                // CRITICAL: CopilotStudio SDK requires text property for ALL activities
+                // Add it immediately if missing, regardless of activity type
+                if (!activity.text) {
+                    activity.text = ' ';
+                    console.log('Store middleware: Added text property to', activity.type, 'activity');
+                }
                 
                 // Handle file uploads (user responding to Question node)
                 if (activity.attachments && activity.attachments.length > 0) {
                     console.log(`User uploading ${activity.attachments.length} file(s) in response to bot question`);
                     
-                    // CRITICAL: Bot Framework requires text property for messages with attachments
-                    if (!activity.text || activity.text.trim() === '') {
-                        activity.text = ' '; // Single space satisfies the requirement
-                        console.log('Added minimal text to attachment activity');
-                    }
+                    // Text already added at top of middleware
                     
                     // CRITICAL FIX: Copilot Studio needs inline content, not contentUrl
                     // Convert contentUrl attachments to inline content
