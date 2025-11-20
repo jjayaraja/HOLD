@@ -20,25 +20,37 @@ import { settings } from './settings.js';
         });
         console.log('DirectLine connection created');
 
+        // Wrap the postActivity method to ensure all activities have required properties
+        const originalPostActivity = directLine.postActivity.bind(directLine);
+        directLine.postActivity = (activity) => {
+            console.log('postActivity called with:', activity);
+            
+            // Ensure activity has all required properties
+            const enhancedActivity = {
+                ...activity,
+                // Add text for message-type activities if missing
+                text: activity.text || (activity.type === 'message' ? ' ' : undefined)
+            };
+            
+            console.log('Enhanced activity:', enhancedActivity);
+            return originalPostActivity(enhancedActivity);
+        };
+
         // Create a store with middleware to handle Question node file responses
         const store = window.WebChat.createStore({}, ({ dispatch }) => next => action => {
             if (action.type === 'DIRECT_LINE/POST_ACTIVITY') {
                 const activity = action.payload.activity;
                 
-                // Only process message-type activities for text/attachment handling
-                // Skip events, typing indicators, etc.
-                if (activity.type !== 'message') {
-                    return next(action);
-                }
+                console.log('Store middleware - Activity type:', activity.type);
                 
                 // Handle file uploads (user responding to Question node)
                 if (activity.attachments && activity.attachments.length > 0) {
                     console.log(`User uploading ${activity.attachments.length} file(s) in response to bot question`);
                     
-                    // CRITICAL: Bot Framework requires text property, even for file-only responses
-                    // The Question node will recognize the attachment as the answer
+                    // CRITICAL: Bot Framework requires text property for messages with attachments
                     if (!activity.text || activity.text.trim() === '') {
                         activity.text = ' '; // Single space satisfies the requirement
+                        console.log('Added minimal text to attachment activity');
                     }
                     
                     // CRITICAL FIX: Copilot Studio needs inline content, not contentUrl
@@ -52,9 +64,7 @@ import { settings } from './settings.js';
                             size: attachment.contentUrl ? 'URL' : (attachment.content ? `${attachment.content.length} bytes` : 'unknown')
                         });
                         
-                        // If we have contentUrl but no content, we need to fetch it
-                        // However, Web Chat should already provide content for Copilot Studio
-                        // Let's ensure we're sending the right format
+                        // Ensure we're sending the right format
                         const processedAttachment = {
                             contentType: attachment.contentType || 'application/octet-stream',
                             name: attachment.name
@@ -65,7 +75,7 @@ import { settings } from './settings.js';
                             processedAttachment.content = attachment.content;
                             console.log(`Attachment ${idx}: Using inline content (${attachment.content.length} bytes)`);
                         } else if (attachment.contentUrl) {
-                            // Keep contentUrl as fallback, but this might not work with Question node
+                            // Keep contentUrl as fallback
                             processedAttachment.contentUrl = attachment.contentUrl;
                             console.warn(`Attachment ${idx}: Only has contentUrl - may not work with Copilot Studio Question node`);
                         }
@@ -78,6 +88,12 @@ import { settings } from './settings.js';
                     });
                     
                     console.log('File activity prepared for Question node response');
+                }
+                
+                // Ensure message-type activities have text property
+                if (activity.type === 'message' && (!activity.text || activity.text === '')) {
+                    activity.text = ' ';
+                    console.log('Added minimal text to message activity');
                 }
                 
                 // Log all outgoing activities for debugging
@@ -139,15 +155,9 @@ import { settings } from './settings.js';
                 styleOptions: {
                     botAvatarInitials: 'CS',
                     userAvatarInitials: 'You',
-                    hideUploadButton: false, // Show the attachment button
-                    // Optional: Customize appearance
-                    bubbleBackground: '#0078D4',
-                    bubbleTextColor: 'White',
-                    bubbleFromUserBackground: '#E6E6E6',
-                    bubbleFromUserTextColor: 'Black'
+                    hideUploadButton: false
                 },
                 sendTypingIndicator: true,
-                // Add error handler for debugging
                 onError: (error) => {
                     console.error('WebChat error:', error);
                 }
@@ -168,26 +178,14 @@ import { settings } from './settings.js';
                         hasInputHint: !!activity.inputHint,
                         inputHint: activity.inputHint
                     });
-                    
-                    // Detect when bot is asking for file
-                    if (activity.text && activity.text.toLowerCase().includes('upload')) {
-                        console.log('Bot is requesting file upload - user can now attach file');
-                    }
                 }
             },
             error => console.error('DirectLine activity error:', error)
         );
 
         // Post the initial welcome activity to start conversation
-        directLine.postActivity({
-            from: { id: 'user', name: 'User' },
-            type: 'event',
-            name: 'startConversation',
-            locale: 'en-US'
-        }).subscribe(
-            id => console.log('Conversation started - bot will prompt for file upload'),
-            error => console.error('Error starting conversation:', error)
-        );
+        // Don't manually post - let Web Chat handle initialization
+        console.log('Web Chat initialized. Conversation will start automatically.');
 
     } catch (error) {
         console.error('Error initializing Copilot Studio client:', error);
@@ -201,14 +199,7 @@ import { settings } from './settings.js';
                     
                     <h4>Common Issues:</h4>
                     <ul style="line-height: 1.6;">
-                        <li><strong>settings.js:</strong> Verify all fields are configured correctly
-                            <ul>
-                                <li>agentIdentifier (your bot ID)</li>
-                                <li>environmentId (your environment)</li>
-                                <li>appClientId (Azure AD app)</li>
-                                <li>tenantId (Azure AD tenant)</li>
-                            </ul>
-                        </li>
+                        <li><strong>settings.js:</strong> Verify all fields are configured correctly</li>
                         <li><strong>Authentication:</strong> Ensure Azure AD app has correct permissions</li>
                         <li><strong>Network:</strong> Check browser console (F12) for CORS or network errors</li>
                         <li><strong>Bot Status:</strong> Verify your Copilot Studio bot is published</li>
