@@ -1,1 +1,162 @@
 
+// Import the necessary functions from acquireToken.js
+import { acquireToken } from './acquireToken.js';
+import { settings } from './settings.js';
+
+(async function() {
+    try {
+        console.log('Initializing Copilot Studio Web Client...');
+        
+        // Acquire the authentication token
+        const token = await acquireToken(settings);
+        console.log('Token acquired successfully');
+
+        // Initialize the Copilot Studio client
+        const client = new CopilotStudioClient(settings, token);
+        console.log('CopilotStudio client initialized');
+
+        // Create the WebChat connection
+        const directLine = CopilotStudioWebChat.createConnection(client, {
+            showTyping: true
+        });
+        console.log('DirectLine connection created');
+
+        // Create a store with middleware to handle Question node file responses
+        const store = window.WebChat.createStore({}, ({ dispatch }) => next => action => {
+            if (action.type === 'DIRECT_LINE/POST_ACTIVITY') {
+                const activity = action.payload.activity;
+                
+                // Handle file uploads (user responding to Question node)
+                if (activity.attachments && activity.attachments.length > 0) {
+                    console.log(`User uploading ${activity.attachments.length} file(s) in response to bot question`);
+                    
+                    // CRITICAL: Bot Framework requires text property, even for file-only responses
+                    // The Question node will recognize the attachment as the answer
+                    if (!activity.text || activity.text.trim() === '') {
+                        activity.text = ' '; // Single space satisfies the requirement
+                    }
+                    
+                    // Ensure proper attachment format for Copilot Studio
+                    activity.attachments = activity.attachments.map((attachment, idx) => {
+                        console.log(`Attachment ${idx}:`, {
+                            name: attachment.name,
+                            contentType: attachment.contentType,
+                            size: attachment.contentUrl ? 'URL' : (attachment.content ? `${attachment.content.length} bytes` : 'unknown')
+                        });
+                        
+                        return {
+                            contentType: attachment.contentType || 'application/octet-stream',
+                            contentUrl: attachment.contentUrl,
+                            content: attachment.content,
+                            name: attachment.name,
+                            thumbnailUrl: attachment.thumbnailUrl
+                        };
+                    });
+                    
+                    console.log('File activity prepared for Question node response');
+                }
+                
+                // Log all outgoing activities for debugging
+                console.log('Outgoing activity:', {
+                    type: activity.type,
+                    text: activity.text,
+                    hasAttachments: !!(activity.attachments && activity.attachments.length > 0),
+                    attachmentCount: activity.attachments ? activity.attachments.length : 0
+                });
+            }
+            
+            return next(action);
+        });
+
+        // Render the WebChat component
+        window.WebChat.renderWebChat(
+            {
+                directLine: directLine,
+                store: store,
+                styleOptions: {
+                    botAvatarInitials: 'CS',
+                    userAvatarInitials: 'You',
+                    hideUploadButton: false, // Show the attachment button
+                    // Optional: Customize appearance
+                    bubbleBackground: '#0078D4',
+                    bubbleTextColor: 'White',
+                    bubbleFromUserBackground: '#E6E6E6',
+                    bubbleFromUserTextColor: 'Black'
+                },
+                sendTypingIndicator: true,
+                // Add error handler for debugging
+                onError: (error) => {
+                    console.error('WebChat error:', error);
+                    // Don't show error to user unless it's critical
+                }
+            },
+            document.getElementById('webchat')
+        );
+
+        console.log('WebChat rendered successfully');
+        console.log('Bot will ask for file upload when ready. Use the attachment button to respond.');
+
+        // Subscribe to incoming activities for debugging
+        directLine.activity$.subscribe(
+            activity => {
+                if (activity.from.role === 'bot') {
+                    console.log('Bot activity:', {
+                        type: activity.type,
+                        text: activity.text?.substring(0, 50) + '...',
+                        hasInputHint: !!activity.inputHint,
+                        inputHint: activity.inputHint
+                    });
+                    
+                    // Detect when bot is asking for file
+                    if (activity.text && activity.text.toLowerCase().includes('upload')) {
+                        console.log('Bot is requesting file upload - user can now attach file');
+                    }
+                }
+            },
+            error => console.error('DirectLine activity error:', error)
+        );
+
+        // Post the initial welcome activity to start conversation
+        directLine.postActivity({
+            from: { id: 'user', name: 'User' },
+            type: 'event',
+            name: 'startConversation',
+            locale: 'en-US'
+        }).subscribe(
+            id => console.log('Conversation started - bot will prompt for file upload'),
+            error => console.error('Error starting conversation:', error)
+        );
+
+    } catch (error) {
+        console.error('Error initializing Copilot Studio client:', error);
+        
+        const webchatDiv = document.getElementById('webchat');
+        if (webchatDiv) {
+            webchatDiv.innerHTML = `
+                <div style="padding: 20px; color: #d32f2f; background-color: #ffebee; border-radius: 4px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+                    <h3 style="margin-top: 0;">❌ Failed to Initialize Chat</h3>
+                    <p><strong>Error:</strong> ${error.message}</p>
+                    
+                    <h4>Common Issues:</h4>
+                    <ul style="line-height: 1.6;">
+                        <li><strong>settings.js:</strong> Verify all fields are configured correctly
+                            <ul>
+                                <li>agentIdentifier (your bot ID)</li>
+                                <li>environmentId (your environment)</li>
+                                <li>appClientId (Azure AD app)</li>
+                                <li>tenantId (Azure AD tenant)</li>
+                            </ul>
+                        </li>
+                        <li><strong>Authentication:</strong> Ensure Azure AD app has correct permissions</li>
+                        <li><strong>Network:</strong> Check browser console (F12) for CORS or network errors</li>
+                        <li><strong>Bot Status:</strong> Verify your Copilot Studio bot is published</li>
+                    </ul>
+                    
+                    <p style="margin-top: 15px; padding: 10px; background: #fff3cd; border-left: 4px solid #ffc107; color: #856404;">
+                        <strong>💡 Tip:</strong> Open browser DevTools (F12) → Console tab for detailed error logs
+                    </p>
+                </div>
+            `;
+        }
+    }
+})();
