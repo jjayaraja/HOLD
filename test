@@ -29,10 +29,10 @@ import { settings } from './settings.js';
                 if (activity.attachments && activity.attachments.length > 0) {
                     console.log(`User uploading ${activity.attachments.length} file(s) in response to bot question`);
                     
-                    // CRITICAL: Bot Framework requires text property, even for file-only responses
-                    // The Question node will recognize the attachment as the answer
+                    // CRITICAL: Adapter requires non-empty text after trim()
+                    // Use a minimal non-whitespace placeholder; bot will focus on attachment
                     if (!activity.text || activity.text.trim() === '') {
-                        activity.text = ' '; // Single space satisfies the requirement
+                        activity.text = '[attachment]'; // Survives trim(); customize if needed
                     }
                     
                     // Ensure proper attachment format for Copilot Studio
@@ -82,7 +82,7 @@ import { settings } from './settings.js';
                     bubbleFromUserBackground: '#E6E6E6',
                     bubbleFromUserTextColor: 'Black'
                 },
-                sendTypingIndicator: true,
+                sendTypingIndicator: false, // Disabled to avoid error on typing
                 // Add error handler for debugging
                 onError: (error) => {
                     console.error('WebChat error:', error);
