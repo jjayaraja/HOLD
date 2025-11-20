@@ -1,4 +1,3 @@
-
 // Import the necessary functions from acquireToken.js
 import { acquireToken } from './acquireToken.js';
 import { settings } from './settings.js';
@@ -10,17 +9,17 @@ import { settings } from './settings.js';
         // Acquire the authentication token
         const token = await acquireToken(settings);
         console.log('Token acquired successfully');
-
+        
         // Initialize the Copilot Studio client
         const client = new CopilotStudioClient(settings, token);
         console.log('CopilotStudio client initialized');
-
+        
         // Create the WebChat connection
         const directLine = CopilotStudioWebChat.createConnection(client, {
             showTyping: true
         });
         console.log('DirectLine connection created');
-
+        
         // Create a store with middleware to handle Question node file responses
         const store = window.WebChat.createStore({}, ({ dispatch }) => next => action => {
             if (action.type === 'DIRECT_LINE/POST_ACTIVITY') {
@@ -67,7 +66,7 @@ import { settings } from './settings.js';
             
             return next(action);
         });
-
+        
         // Render the WebChat component
         window.WebChat.renderWebChat(
             {
@@ -92,10 +91,9 @@ import { settings } from './settings.js';
             },
             document.getElementById('webchat')
         );
-
         console.log('WebChat rendered successfully');
         console.log('Bot will ask for file upload when ready. Use the attachment button to respond.');
-
+        
         // Subscribe to incoming activities for debugging
         directLine.activity$.subscribe(
             activity => {
@@ -115,18 +113,9 @@ import { settings } from './settings.js';
             },
             error => console.error('DirectLine activity error:', error)
         );
-
-        // Post the initial welcome activity to start conversation
-        directLine.postActivity({
-            from: { id: 'user', name: 'User' },
-            type: 'event',
-            name: 'startConversation',
-            locale: 'en-US'
-        }).subscribe(
-            id => console.log('Conversation started - bot will prompt for file upload'),
-            error => console.error('Error starting conversation:', error)
-        );
-
+        
+        // No need for manual startConversation - let the bot initiate via its Greeting topic
+        
     } catch (error) {
         console.error('Error initializing Copilot Studio client:', error);
         
