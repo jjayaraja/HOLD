@@ -3,8 +3,22 @@ import { acquireToken } from './acquireToken.js';
 import { settings } from './settings.js';
 
 (async function() {
+    // Wait for DOM to be fully loaded
+    if (document.readyState === 'loading') {
+        await new Promise(resolve => {
+            document.addEventListener('DOMContentLoaded', resolve);
+        });
+    }
+    
     try {
         console.log('Initializing Copilot Studio Web Client...');
+        
+        // Verify webchat container exists
+        const webchatDiv = document.getElementById('webchat');
+        if (!webchatDiv) {
+            throw new Error('Element with id "webchat" not found in DOM');
+        }
+        console.log('Webchat container found');
         
         // Acquire the authentication token
         const token = await acquireToken(settings);
@@ -97,12 +111,6 @@ import { settings } from './settings.js';
                     console.log('File activity prepared for Question node response');
                 }
                 
-                // Ensure message-type activities have text property
-                if (activity.type === 'message' && (!activity.text || activity.text === '')) {
-                    activity.text = ' ';
-                    console.log('Added minimal text to message activity');
-                }
-                
                 // Log all outgoing activities for debugging
                 console.log('Outgoing activity:', {
                     type: activity.type,
@@ -175,24 +183,10 @@ import { settings } from './settings.js';
         console.log('WebChat rendered successfully');
         console.log('Bot will ask for file upload when ready. Use the attachment button to respond.');
 
-        // Subscribe to incoming activities for debugging
-        directLine.activity$.subscribe(
-            activity => {
-                if (activity.from.role === 'bot') {
-                    console.log('Bot activity:', {
-                        type: activity.type,
-                        text: activity.text?.substring(0, 50) + '...',
-                        hasInputHint: !!activity.inputHint,
-                        inputHint: activity.inputHint
-                    });
-                }
-            },
-            error => console.error('DirectLine activity error:', error)
-        );
-
-        // Post the initial welcome activity to start conversation
-        // Don't manually post - let Web Chat handle initialization
-        console.log('Web Chat initialized. Conversation will start automatically.');
+        // Don't manually subscribe to activity$ as it may cause issues
+        // Let Web Chat handle everything automatically
+        
+        console.log('Web Chat initialized. Waiting for bot to start conversation...');
 
     } catch (error) {
         console.error('Error initializing Copilot Studio client:', error);
