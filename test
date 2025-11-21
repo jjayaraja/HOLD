@@ -1,3 +1,4 @@
+
 import { acquireToken } from './acquireToken.js';
 import { settings } from './settings.js';
 
@@ -14,6 +15,15 @@ import { settings } from './settings.js';
   const token = await acquireToken(settings);
   const client = new CopilotStudioClient(settings, token);
   const directLine = CopilotStudioWebChat.createConnection(client, { showTyping: true });
+
+  // Guarantee a minimal text value before Copilot Studio validates activities.
+  const originalPostActivity = directLine.postActivity.bind(directLine);
+  directLine.postActivity = activity => {
+    if (!activity.text || !activity.text.trim()) {
+      activity.text = ' ';
+    }
+    return originalPostActivity(activity);
+  };
 
   // Ensure all activities have minimal text only when missing.
   const store = window.WebChat.createStore({}, () => next => action => {
@@ -36,6 +46,7 @@ import { settings } from './settings.js';
             name: attachment.name,
             contentType: attachment.contentType || 'application/octet-stream',
             thumbnailUrl: attachment.thumbnailUrl,
+            blob, // keep blob so attachmentMiddleware can read it
             content: attachment.content // keep existing content if provided
           };
         });
