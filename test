@@ -1,4 +1,3 @@
-
 import { acquireToken } from './acquireToken.js';
 import { settings } from './settings.js';
 
@@ -16,11 +15,14 @@ import { settings } from './settings.js';
   const client = new CopilotStudioClient(settings, token);
   const directLine = CopilotStudioWebChat.createConnection(client, { showTyping: true });
 
+  // Use a zero-width space so validation passes without rendering visible text.
+  const TEXT_FALLBACK = '\u200b';
+
   // Guarantee a minimal text value before Copilot Studio validates activities.
   const originalPostActivity = directLine.postActivity.bind(directLine);
   directLine.postActivity = activity => {
     if (!activity.text || !activity.text.trim()) {
-      activity.text = ' ';
+      activity.text = TEXT_FALLBACK;
     }
     return originalPostActivity(activity);
   };
@@ -29,8 +31,8 @@ import { settings } from './settings.js';
   const store = window.WebChat.createStore({}, () => next => action => {
     if (action.type === 'DIRECT_LINE/POST_ACTIVITY') {
       const activity = action.payload.activity;
-      if (!activity.text) {
-        activity.text = ' '; // satisfies Copilot Studio validation
+      if (!activity.text || !activity.text.trim()) {
+        activity.text = TEXT_FALLBACK; // satisfies Copilot Studio validation
       }
 
       if (activity.attachments?.length) {
