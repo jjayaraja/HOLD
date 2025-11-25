@@ -1,468 +1,299 @@
-// index.js - UPDATED for File Upload Support
-// This file shows the CRITICAL CHANGES needed to make file uploads work
+/**
+ * fileUploadPatch.js
+ * 
+ * This file adds file upload functionality to your existing Copilot Studio webclient
+ * WITHOUT breaking your current working code.
+ * 
+ * INSTALLATION:
+ * 1. Save this file as "fileUploadPatch.js" in your /web folder
+ * 2. Add this line to your index.html AFTER the existing index.js import:
+ *    <script type="module" src="./fileUploadPatch.js"></script>
+ * 3. Add a file upload button to your HTML (see instructions below)
+ */
 
-import { CopilotStudioClient } from '@microsoft/agents-copilotstudio-client/dist/src/browser.mjs';
-import { loadCopilotStudioConnectionSettingsFromEnv } from './settings.js';
-import { acquireToken } from './acquireToken.js';
+console.log('File Upload Patch loaded');
 
-let copilotClient = null;
-let conversationId = null;
-
-// Initialize the Copilot Studio client
-async function initialize() {
-    try {
-        console.log('Loading settings...');
-        const settings = loadCopilotStudioConnectionSettingsFromEnv();
-        
-        console.log('Acquiring token...');
-        const token = await acquireToken(settings);
-        
-        console.log('Creating Copilot Studio client...');
-        copilotClient = new CopilotStudioClient(settings, token);
-        
-        console.log('Starting conversation...');
-        const replies = await copilotClient.startConversationAsync(true);
-        conversationId = copilotClient.conversationId;
-        
-        console.log('Conversation started:', conversationId);
-        
-        // Display initial messages
-        replies.forEach(r => {
-            if (r.text) {
-                displayMessage(r.text, 'bot');
-            }
-        });
-        
-        // Enable UI controls
-        enableControls();
-        
-    } catch (error) {
-        console.error('Initialization error:', error);
-        displayError('Failed to connect: ' + error.message);
-    }
-}
-
-// Send text message
-async function sendMessage(text) {
-    if (!copilotClient || !text.trim()) return;
+// Wait for the page to load and existing code to initialize
+window.addEventListener('load', () => {
+    console.log('Initializing file upload patch...');
     
-    displayMessage(text, 'user');
-    
-    try {
-        const replies = await copilotClient.askQuestionAsync(text, conversationId);
-        
-        replies.forEach(r => {
-            if (r.text) {
-                displayMessage(r.text, 'bot');
-            }
-        });
-    } catch (error) {
-        console.error('Error sending message:', error);
-        displayError('Error: ' + error.message);
-    }
-}
+    // Wait a bit for your existing code to set up the client
+    setTimeout(() => {
+        initFileUploadSupport();
+    }, 2000);
+});
 
-// **CRITICAL FIX: Handle file upload**
-// This is the key change needed for file uploads to work
-async function handleFileUpload(file) {
-    if (!copilotClient || !file) {
-        console.error('Client not initialized or no file provided');
+function initFileUploadSupport() {
+    console.log('Setting up file upload support...');
+    
+    // Try to find the existing copilot client from window/global scope
+    // Adjust these property names based on how your index.js exposes the client
+    const client = window.copilotClient || window.client || findCopilotClient();
+    
+    if (!client) {
+        console.warn('Copilot client not found. Make sure your existing code has initialized.');
+        console.warn('You may need to expose the client: window.copilotClient = copilotClient;');
         return;
     }
     
-    console.log('Processing file upload:', {
-        name: file.name,
-        type: file.type,
-        size: file.size
+    console.log('Found copilot client:', client);
+    
+    // Create file input if it doesn't exist
+    createFileUploadUI();
+    
+    // Set up file upload handler
+    setupFileUploadHandler(client);
+}
+
+// Find the copilot client from the global scope
+function findCopilotClient() {
+    // Check various possible locations
+    const possibleLocations = [
+        'copilotClient',
+        'client', 
+        'copilotStudioClient',
+        'botClient'
+    ];
+    
+    for (const location of possibleLocations) {
+        if (window[location]) {
+            console.log(`Found client at window.${location}`);
+            return window[location];
+        }
+    }
+    
+    // Check if it's in a module scope (less likely but possible)
+    return null;
+}
+
+// Create file upload UI elements
+function createFileUploadUI() {
+    // Check if file input already exists
+    let fileInput = document.getElementById('file-input');
+    let fileButton = document.getElementById('file-button');
+    
+    if (!fileInput) {
+        console.log('Creating file input element...');
+        fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.id = 'file-input';
+        fileInput.style.display = 'none';
+        document.body.appendChild(fileInput);
+    }
+    
+    if (!fileButton) {
+        console.log('Creating file upload button...');
+        fileButton = document.createElement('button');
+        fileButton.id = 'file-button';
+        fileButton.textContent = '📎 Upload File';
+        fileButton.style.cssText = `
+            padding: 10px 20px;
+            background: #0078d4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-left: 10px;
+        `;
+        
+        // Try to find the input area and add the button
+        const inputArea = document.querySelector('.input-area') || 
+                         document.querySelector('#input-area') ||
+                         document.querySelector('[class*="input"]');
+        
+        if (inputArea) {
+            inputArea.appendChild(fileButton);
+        } else {
+            // Fallback: add to body
+            document.body.appendChild(fileButton);
+        }
+        
+        // Connect button to file input
+        fileButton.addEventListener('click', () => {
+            fileInput.click();
+        });
+    }
+}
+
+// Set up the file upload handler
+function setupFileUploadHandler(client) {
+    const fileInput = document.getElementById('file-input');
+    
+    if (!fileInput) {
+        console.error('File input not found');
+        return;
+    }
+    
+    console.log('Setting up file upload handler...');
+    
+    fileInput.addEventListener('change', async (event) => {
+        const file = event.target.files[0];
+        
+        if (!file) {
+            console.log('No file selected');
+            return;
+        }
+        
+        console.log('File selected:', {
+            name: file.name,
+            type: file.type,
+            size: file.size
+        });
+        
+        await handleFileUpload(file, client);
+        
+        // Reset input
+        fileInput.value = '';
     });
-    
-    displayMessage(`📎 Uploading: ${file.name}`, 'user');
-    
+}
+
+// Handle the actual file upload
+async function handleFileUpload(file, client) {
     try {
+        // Show upload message
+        addMessageToChat(`📎 Uploading: ${file.name} (${formatFileSize(file.size)})`, 'user');
+        
+        console.log('Starting file upload process...');
+        
         // Step 1: Convert file to base64 data URL
         console.log('Converting file to base64...');
         const dataUrl = await readFileAsDataUrl(file);
+        console.log('File converted, data URL length:', dataUrl.length);
         
-        // Step 2: Create the activity with attachment
-        // IMPORTANT: This is the EXACT format Copilot Studio expects
+        // Step 2: Create activity with attachment
         const activity = {
             type: 'message',
-            from: { 
-                id: 'user' 
-            },
-            // DO NOT include 'text' field when sending file-only uploads
+            from: { id: 'user' },
             attachments: [{
                 contentType: file.type || 'application/octet-stream',
-                contentUrl: dataUrl,  // MUST be a data URL (data:mime/type;base64,...)
+                contentUrl: dataUrl,
                 name: file.name
             }]
         };
         
-        console.log('Sending file activity with attachment:', {
-            fileName: file.name,
-            fileType: file.type,
-            dataUrlLength: dataUrl.length,
-            activityType: activity.type
+        console.log('Created activity:', {
+            type: activity.type,
+            attachmentCount: activity.attachments.length,
+            fileName: activity.attachments[0].name,
+            fileType: activity.attachments[0].contentType
         });
         
-        // Step 3: Use sendActivityAsync (NOT askQuestionAsync) for file uploads
-        // This is CRITICAL - askQuestionAsync won't work for attachments
-        const replies = await copilotClient.sendActivityAsync(activity, conversationId);
+        // Step 3: Get conversation ID
+        const conversationId = client.conversationId || 
+                              window.conversationId || 
+                              getConversationId();
         
-        console.log('File upload successful, received replies:', replies.length);
+        if (!conversationId) {
+            throw new Error('Conversation ID not found');
+        }
+        
+        console.log('Using conversation ID:', conversationId);
+        
+        // Step 4: Send activity
+        console.log('Sending file activity...');
+        
+        // Try different possible method names
+        let replies;
+        if (typeof client.sendActivityAsync === 'function') {
+            replies = await client.sendActivityAsync(activity, conversationId);
+        } else if (typeof client.postActivity === 'function') {
+            replies = await client.postActivity(activity);
+        } else if (typeof client.sendActivity === 'function') {
+            replies = await client.sendActivity(activity, conversationId);
+        } else {
+            throw new Error('No suitable send method found on client');
+        }
+        
+        console.log('File sent successfully! Replies:', replies);
         
         // Display bot responses
-        replies.forEach(r => {
-            if (r.text) {
-                displayMessage(r.text, 'bot');
-            }
-        });
+        if (Array.isArray(replies)) {
+            replies.forEach(reply => {
+                if (reply && reply.text) {
+                    addMessageToChat(reply.text, 'bot');
+                }
+            });
+        }
+        
+        addMessageToChat(`✓ File uploaded: ${file.name}`, 'system');
         
     } catch (error) {
         console.error('File upload error:', error);
         console.error('Error stack:', error.stack);
-        displayError(`Upload failed: ${error.message}`);
+        addMessageToChat(`✗ Upload failed: ${error.message}`, 'error');
     }
 }
 
-// Convert File to base64 Data URL
+// Convert file to base64 data URL
 function readFileAsDataUrl(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         
         reader.onload = function(event) {
-            // Result is in format: data:application/pdf;base64,JVBERi0x...
-            const dataUrl = event.target.result;
-            console.log('File converted to data URL:', {
-                length: dataUrl.length,
-                prefix: dataUrl.substring(0, 50) + '...'
-            });
-            resolve(dataUrl);
+            resolve(event.target.result);
         };
         
         reader.onerror = function(error) {
-            console.error('FileReader error:', error);
-            reject(new Error('Failed to read file: ' + error.message));
+            reject(new Error('Failed to read file: ' + error));
         };
         
-        // Read as data URL (base64)
         reader.readAsDataURL(file);
     });
 }
 
-// UI Helper Functions
-function displayMessage(text, sender) {
-    const chatContainer = document.getElementById('chat-container');
+// Get conversation ID from various possible locations
+function getConversationId() {
+    return window.conversationId || 
+           document.getElementById('conversationId')?.value ||
+           localStorage.getItem('conversationId');
+}
+
+// Add message to chat UI
+function addMessageToChat(text, type) {
+    // Try to find the chat container
+    const chatContainer = document.getElementById('chat-container') ||
+                         document.querySelector('.chat-container') ||
+                         document.querySelector('[class*="chat"]') ||
+                         document.querySelector('[id*="chat"]');
+    
+    if (!chatContainer) {
+        console.log('Message:', text);
+        return;
+    }
+    
     const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${sender}-message`;
+    messageDiv.className = `message ${type}-message`;
     messageDiv.textContent = text;
+    
+    // Add some basic styling if no class exists
+    if (!document.querySelector(`.${type}-message`)) {
+        messageDiv.style.cssText = `
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 5px;
+            ${type === 'user' ? 'background: #0078d4; color: white; text-align: right;' : ''}
+            ${type === 'bot' ? 'background: #f3f2f1; color: black;' : ''}
+            ${type === 'error' ? 'background: #fde7e9; color: #c50f1f;' : ''}
+            ${type === 'system' ? 'background: #d4edda; color: #155724;' : ''}
+        `;
+    }
+    
     chatContainer.appendChild(messageDiv);
     chatContainer.scrollTop = chatContainer.scrollHeight;
 }
 
-function displayError(message) {
-    displayMessage(message, 'error');
+// Format file size for display
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
-function enableControls() {
-    document.getElementById('message-input').disabled = false;
-    document.getElementById('send-button').disabled = false;
-    document.getElementById('file-button').disabled = false;
-}
+console.log('File Upload Patch ready');
 
-// Event Listeners Setup
-function setupEventListeners() {
-    const messageInput = document.getElementById('message-input');
-    const sendButton = document.getElementById('send-button');
-    const fileButton = document.getElementById('file-button');
-    const fileInput = document.getElementById('file-input');
-    
-    sendButton.addEventListener('click', () => {
-        const text = messageInput.value;
-        if (text.trim()) {
-            sendMessage(text);
-            messageInput.value = '';
-        }
-    });
-    
-    messageInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            const text = messageInput.value;
-            if (text.trim()) {
-                sendMessage(text);
-                messageInput.value = '';
-            }
-        }
-    });
-    
-    fileButton.addEventListener('click', () => {
-        fileInput.click();
-    });
-    
-    // CRITICAL: File input change handler
-    fileInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            console.log('File selected:', file.name);
-            handleFileUpload(file);
-            // Reset so same file can be uploaded again
-            fileInput.value = '';
-        }
-    });
-}
-
-// Initialize on page load
-document.addEventListener('DOMContentLoaded', () => {
-    console.log('Page loaded, setting up...');
-    setupEventListeners();
-    initialize();
-});
-
-// Export for use in other modules if needed
-export { initialize, sendMessage, handleFileUpload };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Copilot Studio Web Client</title>
-    <link rel="stylesheet" href="index.css">
-</head>
-<body>
-    <div class="container">
-        <h1>Copilot Studio Agent</h1>
-        
-        <div id="status" class="status">Connecting...</div>
-        
-        <div id="chat-container" class="chat-container"></div>
-        
-        <div class="input-area">
-            <input 
-                type="text" 
-                id="message-input" 
-                placeholder="Type your message..." 
-                disabled
-            />
-            <button id="send-button" disabled>Send</button>
-            <button id="file-button" disabled>📎 Upload</button>
-            
-            <!-- Hidden file input -->
-            <input 
-                type="file" 
-                id="file-input" 
-                style="display: none;"
-                accept="*/*"
-            />
-        </div>
-    </div>
-
-    <!-- 
-        IMPORTANT: Use type="module" to support ES6 imports 
-        Make sure the path matches your actual file location
-    -->
-    <script type="module">
-        import { CopilotStudioClient } from './agents-copilotstudio-client/dist/src/browser.mjs';
-        
-        // Import settings - adjust path if your settings.js is different
-        // If you're using settings.TEMPLATE.js, rename it to settings.js first
-        
-        // For this example, we'll define settings inline
-        // In production, import from your settings.js file
-        const settings = {
-            environmentId: 'YOUR_ENVIRONMENT_ID',
-            schemaName: 'YOUR_SCHEMA_NAME', 
-            tenantId: 'YOUR_TENANT_ID'
-        };
-        
-        let copilotClient = null;
-        let conversationId = null;
-        
-        // Get DOM elements
-        const chatContainer = document.getElementById('chat-container');
-        const messageInput = document.getElementById('message-input');
-        const sendButton = document.getElementById('send-button');
-        const fileButton = document.getElementById('file-button');
-        const fileInput = document.getElementById('file-input');
-        const statusDiv = document.getElementById('status');
-        
-        // Initialize client
-        async function initialize() {
-            try {
-                statusDiv.textContent = 'Getting authentication...';
-                
-                // Get token - you need to implement this based on your auth setup
-                // Import from acquireToken.js or implement inline
-                const token = await getAuthToken();
-                
-                statusDiv.textContent = 'Connecting to agent...';
-                
-                copilotClient = new CopilotStudioClient(settings, token);
-                
-                const replies = await copilotClient.startConversationAsync(true);
-                conversationId = copilotClient.conversationId;
-                
-                console.log('Connected! Conversation ID:', conversationId);
-                statusDiv.textContent = 'Connected ✓';
-                
-                // Enable controls
-                messageInput.disabled = false;
-                sendButton.disabled = false;
-                fileButton.disabled = false;
-                
-                // Display initial messages
-                replies.forEach(r => {
-                    if (r.text) addMessage(r.text, 'bot');
-                });
-                
-            } catch (error) {
-                console.error('Init error:', error);
-                statusDiv.textContent = 'Connection failed: ' + error.message;
-                statusDiv.style.color = 'red';
-            }
-        }
-        
-        // Send text message
-        async function sendMessage() {
-            const text = messageInput.value.trim();
-            if (!text || !copilotClient) return;
-            
-            addMessage(text, 'user');
-            messageInput.value = '';
-            
-            try {
-                const replies = await copilotClient.askQuestionAsync(text, conversationId);
-                replies.forEach(r => {
-                    if (r.text) addMessage(r.text, 'bot');
-                });
-            } catch (error) {
-                console.error('Send error:', error);
-                addMessage('Error: ' + error.message, 'error');
-            }
-        }
-        
-        // **THIS IS THE CRITICAL FIX FOR FILE UPLOADS**
-        async function uploadFile(file) {
-            if (!file || !copilotClient) return;
-            
-            addMessage(`📎 ${file.name} (${formatSize(file.size)})`, 'user');
-            
-            try {
-                console.log('Converting file to base64...');
-                const dataUrl = await readFileAsDataUrl(file);
-                
-                // CRITICAL: This is the exact format needed
-                const activity = {
-                    type: 'message',
-                    from: { id: 'user' },
-                    attachments: [{
-                        contentType: file.type || 'application/octet-stream',
-                        contentUrl: dataUrl,  // MUST be data URL
-                        name: file.name
-                    }]
-                };
-                
-                console.log('Sending file activity:', {
-                    name: file.name,
-                    type: file.type,
-                    size: file.size
-                });
-                
-                // CRITICAL: Use sendActivityAsync, NOT askQuestionAsync
-                const replies = await copilotClient.sendActivityAsync(activity, conversationId);
-                
-                console.log('File sent! Replies:', replies.length);
-                
-                replies.forEach(r => {
-                    if (r.text) addMessage(r.text, 'bot');
-                });
-                
-            } catch (error) {
-                console.error('Upload error:', error);
-                addMessage('Upload failed: ' + error.message, 'error');
-            }
-        }
-        
-        // Convert file to data URL
-        function readFileAsDataUrl(file) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = (e) => resolve(e.target.result);
-                reader.onerror = (e) => reject(e);
-                reader.readAsDataURL(file);
-            });
-        }
-        
-        // Helper: Add message to chat
-        function addMessage(text, type) {
-            const div = document.createElement('div');
-            div.className = `message ${type}`;
-            div.textContent = text;
-            chatContainer.appendChild(div);
-            chatContainer.scrollTop = chatContainer.scrollHeight;
-        }
-        
-        // Helper: Format file size
-        function formatSize(bytes) {
-            if (bytes < 1024) return bytes + ' B';
-            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-        }
-        
-        // Get auth token - REPLACE THIS with your actual auth implementation
-        async function getAuthToken() {
-            // Option 1: If you have acquireToken.js, import and use it
-            // import { acquireToken } from './acquireToken.js';
-            // return await acquireToken(settings);
-            
-            // Option 2: Get from your backend
-            // const response = await fetch('/api/token');
-            // return (await response.json()).token;
-            
-            // Option 3: Use MSAL (if configured)
-            // return await msalInstance.acquireTokenSilent(...);
-            
-            // For testing, you can temporarily hardcode (NOT for production!)
-            throw new Error('Please implement getAuthToken() with your authentication method');
-        }
-        
-        // Event listeners
-        sendButton.onclick = sendMessage;
-        messageInput.onkeypress = (e) => {
-            if (e.key === 'Enter') sendMessage();
-        };
-        fileButton.onclick = () => fileInput.click();
-        fileInput.onchange = (e) => {
-            const file = e.target.files[0];
-            if (file) {
-                uploadFile(file);
-                fileInput.value = ''; // Reset
-            }
-        };
-        
-        // Start
-        initialize();
-    </script>
-</body>
-</html>
-
+// Export for debugging
+window.fileUploadPatch = {
+    handleFileUpload,
+    readFileAsDataUrl,
+    addMessageToChat
+};
