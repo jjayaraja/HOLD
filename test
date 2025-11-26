@@ -1,0 +1,41 @@
+// Custom middleware to make sure plain text messages always render
+const activityMiddleware = () => next => card => {
+  const { activity } = card;
+
+  // If this is a normal bot/user message with text, render a simple bubble
+  if (activity?.type === 'message' && activity.text) {
+    return () => (
+      <div
+        style={{
+          padding: '8px 12px',
+          margin: '4px 0',
+          borderRadius: 8,
+          background: activity.from?.role === 'user' ? '#0078d4' : '#f3f2f1',
+          color: activity.from?.role === 'user' ? '#ffffff' : '#000000',
+          maxWidth: '70%',
+          alignSelf: activity.from?.role === 'user' ? 'flex-end' : 'flex-start'
+        }}
+      >
+        {activity.text}
+      </div>
+    );
+  }
+
+  // Fallback to Web Chat's default behavior for everything else
+  return next(card);
+};
+
+
+
+return connection
+  ? (
+    <FluentThemeProvider>
+      <Composer
+        directLine={connection}
+        activityMiddleware={activityMiddleware}
+      >
+        <BasicWebChat />
+      </Composer>
+    </FluentThemeProvider>
+    )
+  : null
